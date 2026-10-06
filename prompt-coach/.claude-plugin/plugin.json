@@ -1,0 +1,7 @@
+{
+  "name": "prompt-coach",
+  "version": "0.1.0",
+  "description": "/coach <prompt>: Haiku mejora el prompt y recomienda el modelo adecuado para la tarea",
+  "author": { "name": "kjarock", "url": "https://github.com/kjarock" },
+  "types": "./types/index.d.ts"
+}
