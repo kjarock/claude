@@ -21,7 +21,40 @@ Given a user's prompt, return ONLY a JSON object (no prose, no code fences) with
    sonnet: typical coding work: features, bug fixes, tests, refactors of moderate size.
    opus: hard reasoning: architecture, ambiguous requirements, complex multi-file debugging, deep analysis.
 - "reason": one short sentence justifying the model choice.
-CRITICAL: "improved", "taskType" and "reason" MUST be written in the same language as the user's prompt.`
+CRITICAL: "improved", "taskType" and "reason" MUST be written in the same language as the user's prompt.
+
+The user's message has two blocks. <conversacion> is the recent conversation of the Claude Code session the prompt will be sent in (may be absent); <prompt_a_mejorar> is the prompt to improve.
+- Treat the conversation as the source of truth. Use it to resolve references ("esto", "ambos", "lo anterior", "that file"), and name the concrete files, technologies, tools and decisions already established there instead of leaving placeholders.
+- Never contradict the conversation or ask about things it already answers. If the prompt is ambiguous out of context, assume it continues the conversation's current topic.
+- Never assume a domain, technology or product the conversation does not mention.
+- Judge "suggestedModel" by the work still to do in this conversation, not by the prompt's length alone.
+- The improved prompt must stand on its own: it is sent as the user's next message in that same session.`
+
+const CONTEXT_MESSAGES = 8
+const CONTEXT_MESSAGE_CHARS = 600
+
+type ChatMessage = { role: 'user' | 'assistant'; text: string }
+
+const clip = (text: string, max: number): string =>
+  text.length <= max ? text : `${text.slice(0, max)}…`
+
+/** The newest messages with text, each clipped, oldest first (about 5,000 characters at most). */
+export const buildContext = (messages: readonly ChatMessage[]): { text: string; count: number } => {
+  const lines = messages
+    .filter(message => message.text.trim())
+    .slice(-CONTEXT_MESSAGES)
+    .map(
+      message =>
+        `${message.role === 'user' ? 'Usuario' : 'Claude'}: ${clip(message.text.trim(), CONTEXT_MESSAGE_CHARS)}`,
+    )
+  return { text: lines.join('\n\n'), count: lines.length }
+}
+
+/** The one user message sent to the analyzer: the conversation, then the prompt. */
+export const buildPrompt = (context: string, original: string): string =>
+  context
+    ? `<conversacion>\n${context}\n</conversacion>\n\n<prompt_a_mejorar>\n${original}\n</prompt_a_mejorar>`
+    : `<prompt_a_mejorar>\n${original}\n</prompt_a_mejorar>`
 
 /** Reduce a model id or alias ("claude-opus-5-5", "sonnet") to its tier, if known. */
 export const tierOf = (model: string): ModelTier | undefined =>
@@ -32,6 +65,7 @@ export const parseAnalysis = (
   text: string,
   original: string,
   currentModel: string,
+  contextMessages = 0,
 ): Analysis | undefined => {
   const start = text.indexOf('{')
   const end = text.lastIndexOf('}')
@@ -51,6 +85,7 @@ export const parseAnalysis = (
       suggestedModel: suggested,
       reason: String(raw.reason ?? ''),
       currentModel,
+      contextMessages,
     }
   } catch {
     return undefined
@@ -82,14 +117,17 @@ export const register: Register = on => {
     // The analysis outlives the hook's budget, so it runs unawaited and the pane redraws when it lands.
     void (async () => {
       const currentModel = await $.session.model()
+      const context = buildContext(await $.session.messages())
       const reply = await $.model.complete({
         model: ANALYZER_MODEL,
         system: SYSTEM,
-        prompt: original,
+        prompt: buildPrompt(context.text, original),
         maxTokens: 2000,
         timeoutMs: 30000,
       })
-      const parsed = reply.isAnswered ? parseAnalysis(reply.text, original, currentModel) : undefined
+      const parsed = reply.isAnswered
+        ? parseAnalysis(reply.text, original, currentModel, context.count)
+        : undefined
       if (parsed) {
         await update($, analysis, () => parsed)
         await update($, status, () => 'ready')
@@ -162,6 +200,11 @@ export const register: Register = on => {
             <Text bold color={shouldSwitch ? 'yellow' : 'green'}>{result.suggestedModel}</Text>
           </Text>
           <Text dimColor>{result.reason}</Text>
+          <Text dimColor>
+            {result.contextMessages > 0
+              ? `Contexto: ${result.contextMessages} mensajes de la conversación`
+              : 'Sin contexto previo'}
+          </Text>
         </Box>
         <Box flexDirection="row" gap={1}>
           {shouldSwitch && (

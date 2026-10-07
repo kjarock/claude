@@ -7,6 +7,8 @@ export type Analysis = {
   suggestedModel: ModelTier
   reason: string
   currentModel: string
+  /** Mensajes de la conversación que se le pasaron al analizador. */
+  contextMessages: number
 }
 
 export type CoachStatus = 'idle' | 'analyzing' | 'ready' | 'error'
