@@ -1,0 +1,6 @@
+{
+  "name": "consumo-tokens",
+  "version": "0.1.0",
+  "description": "Banda sobre el prompt con el contexto usado, tokens y costo estimado (USD) de la sesión y del proyecto",
+  "types": "./types/index.d.ts"
+}
